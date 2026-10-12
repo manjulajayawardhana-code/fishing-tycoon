@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>3D Fishing Tycoon</title>
+<style>
+:root{--navy:#072b43;--aqua:#41e0d0;--gold:#ffd166;--glass:rgba(5,28,47,.78)}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#06334b;color:white}
+canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+#hud{position:fixed;inset:0;pointer-events:none;padding:clamp(10px,2vw,24px);display:flex;flex-direction:column;justify-content:space-between}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.brand,.stats,.panel{background:var(--glass);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(10px);border-radius:16px;box-shadow:0 8px 28px #001d2d55}
+.brand{padding:12px 16px}.brand b{font-size:clamp(17px,2.6vw,26px);letter-spacing:.4px}.brand small{display:block;color:#a9f8ee;font-weight:700;letter-spacing:1.5px;font-size:10px}
+.stats{display:flex;gap:14px;padding:12px 16px;flex-wrap:wrap}.stat{font-size:12px;color:#b8dce8}.stat strong{display:block;color:#fff;font-size:clamp(15px,2vw,21px)}
+.bottom{display:flex;justify-content:space-between;align-items:end;gap:12px}.panel{padding:13px 15px;max-width:460px}.panel h2{margin:0 0 5px;font-size:18px}.panel p{margin:0;color:#c9e7ee;font-size:13px;line-height:1.4}
+.controls{display:flex;gap:8px;pointer-events:auto;flex-wrap:wrap;justify-content:flex-end;align-items:end}
+button{border:0;border-radius:13px;padding:13px 17px;font-weight:850;cursor:pointer;color:#052a40;background:linear-gradient(135deg,#7ff8df,#38cbbf);box-shadow:0 5px 0 #138b89;font-size:14px;transition:transform .1s}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #138b89}button.secondary{background:linear-gradient(135deg,#fff0b0,#ffc857);box-shadow:0 5px 0 #b87d1c}button:disabled{opacity:.5;cursor:default}
+#toast{position:fixed;left:50%;top:23%;transform:translateX(-50%);padding:12px 18px;background:#06283de8;border:1px solid #78f5e3;border-radius:14px;font-weight:800;opacity:0;transition:opacity .2s;pointer-events:none;text-align:center;max-width:90vw}
+#catch{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%) scale(.8);text-align:center;opacity:0;pointer-events:none;background:#05283ee8;border:1px solid #ffdb7b;border-radius:20px;padding:18px 26px;transition:all .25s;min-width:210px}
+#catch.show{opacity:1;transform:translate(-50%,-50%) scale(1)}#catch .fish{font-size:44px}#catch h2{margin:4px 0;color:#ffe08a}#catch p{margin:0;color:#c6eaf1}
+#progress{height:7px;background:#ffffff25;border-radius:20px;overflow:hidden;margin-top:10px}#bar{height:100%;width:0;background:linear-gradient(90deg,#3df0d0,#ffdc72);transition:width .15s}
+@media(max-width:600px){.bottom{align-items:stretch;flex-direction:column}.panel{max-width:none}.controls{justify-content:stretch}.controls button{flex:1;padding:12px 9px}.stats{gap:9px;padding:9px 11px}.brand{padding:10px 12px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+ <div class="top">
+  <div class="brand"><small>OCEAN ADVENTURE</small><b>🎣 3D FISHING TYCOON</b></div>
+  <div class="stats">
+   <div class="stat">🪙 COINS<strong id="coins">0</strong></div>
+   <div class="stat">🐟 CAUGHT<strong id="caught">0</strong></div>
+   <div class="stat">🎣 ROD LEVEL<strong id="rod">1</strong></div>
+  </div>
+ </div>
+ <div class="bottom">
+  <div class="panel">
+   <h2 id="status">Ready to fish?</h2>
+   <p id="hint">Tap CAST LINE, then tap REEL IN when the fish bites. Sell your catch and upgrade your rod!</p>
+   <div id="progress"><div id="bar"></div></div>
+  </div>
+  <div class="controls">
+   <button id="cast">🎣 CAST LINE</button>
+   <button id="sell" class="secondary">💰 SELL CATCH</button>
+   <button id="upgrade">⬆️ UPGRADE · 100</button>
+  </div>
+ </div>
+</div>
+<div id="toast"></div>
+<div id="catch"><div class="fish" id="fishEmoji">🐠</div><h2 id="fishName">Nice catch!</h2><p id="fishValue">+20 coins</p></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let w=0,h=0,dpr=1,t=0,phase='idle',biteAt=0,castAt=0,coins=Number(localStorage.ftCoins||0),caught=Number(localStorage.ftCaught||0),rod=Number(localStorage.ftRod||1),catchValue=0,fishCount=0,toastTimer;
+const $=id=>document.getElementById(id);
+const fishTypes=[['🐟','Silver Snapper',20],['🐠','Clownfish',28],['🐡','Pufferfish',35],['🐬','Baby Dolphin',55],['🦈','Reef Shark',90],['🐋','Mini Whale',150]];
+function resize(){dpr=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
+function save(){localStorage.ftCoins=coins;localStorage.ftCaught=caught;localStorage.ftRod=rod;updateUI()}
+function updateUI(){$('coins').textContent=coins.toLocaleString();$('caught').textContent=caught;$('rod').textContent=rod;$('upgrade').textContent='⬆️ UPGRADE · '+(rod*100);$('sell').disabled=fishCount===0;$('cast').disabled=phase==='waiting'||phase==='bite'}
+function toast(s){$('toast').textContent=s;$('toast').style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.opacity=0,1900)}
+function updateStatus(s,hint){$('status').textContent=s;$('hint').textContent=hint}
+function path(points,fill,stroke){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.stroke()}}
+function ellipse(x,y,rx,ry,color){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fillStyle=color;ctx.fill()}
+function line(x1,y1,x2,y2,color,width=2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()}
+function draw(){
+ t+=.016;ctx.clearRect(0,0,w,h);
+ let sky=ctx.createLinearGradient(0,0,0,h*.58);sky.addColorStop(0,'#48c8e8');sky.addColorStop(.65,'#a5f0e6');sky.addColorStop(1,'#f9dc9a');ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+ // sun and soft clouds
+ ellipse(w*.79,h*.14,Math.min(w,h)*.055,Math.min(w,h)*.055,'#fff1ad');
+ for(let i=0;i<4;i++){let x=((i*277+t*5)%(w+200))-100,y=h*(.1+(i%3)*.07);ctx.globalAlpha=.22;ellipse(x,y,48,13,'white');ellipse(x+25,y-7,30,17,'white');ctx.globalAlpha=1}
+ // far islands
+ path([[0,h*.4],[w*.12,h*.29],[w*.22,h*.38],[w*.34,h*.27],[w*.47,h*.4],[w*.62,h*.31],[w*.75,h*.4],[w*.89,h*.28],[w,h*.38],[w,h*.54],[0,h*.54]],'#378d78');
+ // water gradient
+ let water=ctx.createLinearGradient(0,h*.39,0,h);water.addColorStop(0,'#19b9c9');water.addColorStop(.45,'#087f9e');water.addColorStop(1,'#043e67');ctx.fillStyle=water;ctx.fillRect(0,h*.4,w,h*.6);
+ // waves
+ for(let row=0;row<11;row++){let y=h*.43+row*h*.055;ctx.globalAlpha=.16+row*.009;ctx.strokeStyle=row%2?'#b5ffff':'#003f73';ctx.lineWidth=1.4;ctx.beginPath();for(let x=-20;x<w+30;x+=8){let yy=y+Math.sin(x*.018+t*1.8+row)*4; if(x===-20)ctx.moveTo(x,yy);else ctx.lineTo(x,yy)}ctx.stroke()}ctx.globalAlpha=1;
+ // underwater light beams
+ ctx.globalAlpha=.08;path([[w*.2,h*.43],[w*.32,h*.43],[w*.48,h],[w*.36,h]],'#d8fff4');path([[w*.68,h*.43],[w*.74,h*.43],[w*.88,h],[w*.78,h]],'#d8fff4');ctx.globalAlpha=1;
+ // distant palms/island details
+ for(let i=0;i<5;i++){let x=w*(.08+i*.21),y=h*.36+Math.sin(i*4)*h*.018;line(x,y,x+2,y-h*.12,'#5c5037',4);for(let j=0;j<4;j++){let a=j*Math.PI/2.1;line(x+2,y-h*.12,x+Math.cos(a)*23,y-h*.12+Math.sin(a)*11,'#246d53',4)}}
+ // fish silhouettes below water
+ for(let i=0;i<8;i++){let x=((i*153+t*(i%2?22:-17))%(w+100));if(i%2===0)x=w-x;let y=h*(.56+(i%4)*.085);ctx.globalAlpha=.26;ctx.fillStyle=['#9bfff0','#ffe08b','#c5d8ff'][i%3];ellipse(x,y,10+i%3*3,5+i%2*2,ctx.fillStyle);path([[x-9,y],[x-17,y-5],[x-17,y+5]],ctx.fillStyle);ctx.globalAlpha=1}
+ // boat at right-center
+ const bx=w*.57,by=h*.51,scale=Math.min(w/900,h/600);ctx.save();ctx.translate(bx,by);ctx.scale(scale,scale);
+ // boat shadow
+ ctx.globalAlpha=.22;ellipse(0,37,125,15,'#002b43');ctx.globalAlpha=1;
+ // hull
+ path([[-130,0],[130,0],[94,44],[-82,44]],'#9b4f2b','#61351f');path([[-115,5],[115,5],[87,30],[-75,30]],'#e6a45c');
+ // inner floor
+ path([[-84,5],[85,5],[65,23],[-65,23]],'#6a4029');
+ // seat
+ path([[-25,-2],[27,-2],[22,8],[-20,8]],'#ffe0a1');
+ // fisherman
+ ellipse(-13,-41,12,13,'#8a4e2d');path([[-26,-30],[-1,-30],[10,-4],[-17,-4]],'#f6c453');line(-10,-25,10,-7,'#8a4e2d',5);
+ // hat
+ path([[-30,-48],[-22,-59],[-5,-57],[0,-49]],'#d9543d');line(-31,-48,4,-48,'#7c342d',4);
+ // rod
+ line(4,-22,68,-103,'#543d2d',4);line(68,-103,95,-108,'#e6d9ad',1.5);
+ ctx.restore();
+ // cast line and bobber
+ let bobX=w*.72,bobY=h*.62;
+ if(phase!=='idle'){line(w*.57,h*.47,bobX,bobY,'#f4f6e5',1.3);ellipse(bobX,bobY+5,8,3,'#002d46');ellipse(bobX,bobY,5,7,phase==='bite'&&Math.sin(t*14)>0?'#ff4e68':'#ffdf73');ellipse(bobX-1,bobY-3,2,2,'white')}
+ // sparkles
+ for(let i=0;i<18;i++){let x=(i*97+t*8)%(w),y=h*.45+(i*53%Math.max(1,h*.5));ctx.globalAlpha=.16+Math.sin(t*2+i)*.12;ellipse(x,y,1.5,1.5,'#e1ffff')}ctx.globalAlpha=1;
+ requestAnimationFrame(draw)
+}draw();
+$('cast').addEventListener('click',()=>{
+ if(phase==='idle'){phase='waiting';castAt=Date.now();updateStatus('Waiting for a bite…','Watch the bobber! When the fish bites, tap REEL IN quickly.');$('cast').textContent='⏳ WAITING…';toast('Line cast! Stay alert.');setTimeout(()=>{if(phase==='waiting'){phase='bite';biteAt=Date.now();updateStatus('🐟 A FISH IS BITING!','Tap REEL IN now before the fish escapes!');$('cast').textContent='⚡ REEL IN!';$('cast').disabled=false;toast('BITE! REEL IN NOW!');setTimeout(()=>{if(phase==='bite'){phase='idle';$('cast').textContent='🎣 CAST LINE';updateStatus('The fish escaped!','Try again. Upgrade your rod to improve your chances.');updateUI()}},4200)},2500+Math.random()*3000)}
+ else if(phase==='bite'){let elapsed=Date.now()-biteAt;let types=fishTypes.filter((f,i)=>i<Math.min(fishTypes.length,rod+1));let f=types[Math.floor(Math.random()*types.length)];catchValue=Math.round(f[2]*(1+rod*.14));fishCount++;caught++;phase='idle';$('cast').textContent='🎣 CAST LINE';$('fishEmoji').textContent=f[0];$('fishName').textContent=f[1]+'!';$('fishValue').textContent='Sell for '+catchValue+' coins';$('catch').classList.add('show');setTimeout(()=>$('catch').classList.remove('show'),1800);updateStatus('Great catch! '+f[1],'Sell your catch to collect coins, then upgrade your rod.');save();updateUI();setTimeout(()=>{if(phase==='idle')$('cast').disabled=false},100)}
+});
+$('sell').addEventListener('click',()=>{if(!fishCount)return;let earned=catchValue;coins+=earned;fishCount=0;catchValue=0;save();updateStatus('Catch sold! +'+earned+' coins','Cast another line or invest in a better rod.');toast('+'+earned+' coins added to your wallet!');updateUI()});
+$('upgrade').addEventListener('click',()=>{let cost=rod*100;if(coins<cost){toast('You need '+cost+' coins to upgrade. Sell your catch first!');return}coins-=cost;rod++;save();toast('Rod upgraded to level '+rod+'! Better fish unlocked.');updateStatus('Rod upgraded!','Your upgraded rod can attract rarer, more valuable fish.');updateUI()});
+updateUI();if(!localStorage.ftWelcome){toast('Welcome aboard, Captain!');localStorage.ftWelcome='1'}
+})();
+</script>
+</body>
+</html>
